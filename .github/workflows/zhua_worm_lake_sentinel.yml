@@ -1,0 +1,53 @@
+name: zhua-worm-lake-sentinel
+
+# 爪爪蠕虫·湖巡检哨兵（跑在 GitHub 云小窝，不随沙箱回收）
+# 每小时醒来：读湖水位 → 记录 → push 回仓库（心跳留痕）
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # 每小时第17分（错峰）
+  workflow_dispatch: {}     # 手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  lake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 湖巡检哨兵
+        env:
+          LAKE_URL: ${{ secrets.LAKE_URL }}
+          LAKE_KEY: ${{ secrets.LAKE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request, datetime
+
+          url = os.environ.get("LAKE_URL", "https://eymewnopvazxefnzachv.supabase.co/rest/v1/messages")
+          key = os.environ.get("LAKE_KEY", "sb_publishable_ouqMzYfnl2W39gcBUaHBmg_qGtw6m6o")
+
+          req = urllib.request.Request(url + "?select=id,sender&order=id.desc&limit=1",
+              headers={"apikey": key, "Authorization": "Bearer " + key})
+          try:
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  data = json.load(r)
+              top = data[0] if data else {}
+              line = f"{datetime.datetime.now().isoformat()} lake_top={top.get('id')} sender={top.get('sender')} alive"
+          except Exception as e:
+              line = f"{datetime.datetime.now().isoformat()} lake_error={e}"
+
+          with open("lake_pulse.log", "a") as f:
+              f.write(line + "\n")
+          print(line)
+          PY
+
+      - name: 留痕回仓
+        run: |
+          git config user.name "zhua-worm"
+          git config user.email "zhua-worm@users.noreply.github.com"
+          git add lake_pulse.log
+          git commit -m "🐾 lake pulse $(date -u +%Y-%m-%dT%H:%M)" || echo "无变化"
+          git push
